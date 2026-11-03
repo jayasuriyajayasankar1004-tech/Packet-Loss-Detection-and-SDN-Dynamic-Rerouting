@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDN Live Dashboard</title>
+<style>
+/* Layout: status strip, then live network (topology + demo actions), evidence (flows + log),
+   experiment runner, and results with real per-run evidence. System fonts so it works offline. */
+:root {
+  --bg: #f1f4f7; --surface: #ffffff; --soft: #eaeff4; --ink: #14202b; --muted: #566676; --line: #d3dce5;
+  --primary: #1d6fd6; --alt: #0c9577; --fault: #d3402f; --warn: #b87a00;
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Ubuntu, Cantarell, sans-serif;
+  --font-mono: 'Ubuntu Mono', ui-monospace, 'DejaVu Sans Mono', Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d141b; --surface: #141d26; --soft: #1b2631; --ink: #e5ecf2; --muted: #8c9eb0; --line: #2a3745;
+    --primary: #5ba3ff; --alt: #37c8a3; --fault: #ff6c5b; --warn: #e5b13b; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.45; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+h1 { margin: 0 0 4px; font-size: 26px; }
+.lede { margin: 0 0 14px; color: var(--muted); max-width: 75ch; font-size: 14px; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.pill { display: flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); font-size: 13.5px; }
+.pill i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+.pill.ok i { background: var(--alt); } .pill.bad i { background: var(--fault); } .pill.mid i { background: var(--warn); }
+.pill b { font-weight: 600; }
+.grid { display: grid; gap: 16px; margin-bottom: 16px; }
+.g2 { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.g2b { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .g2, .g2b { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+.card h2 { margin: 0 0 10px; font-size: 12.5px; font-family: var(--font-mono); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+svg { width: 100%; height: auto; display: block; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+button { font: inherit; font-weight: 600; padding: 8px 13px; border-radius: 6px; border: 1px solid var(--ink); background: var(--ink); color: var(--surface); cursor: pointer; }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--line); }
+button.danger { background: var(--fault); border-color: var(--fault); color: #fff; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+pre, .log { font-family: var(--font-mono); font-size: 13px; background: var(--soft); border-radius: 6px; padding: 10px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log { max-height: 300px; }
+.log .warn { color: var(--fault); } .log .ok { color: var(--alt); } .log .dim { color: var(--muted); }
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+.hint code, .lede code { font-family: var(--font-mono); background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.flows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.fl { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--soft); font-family: var(--font-mono); font-size: 13px; }
+.fl b { font-family: var(--font-ui); }
+.fl .dim { color: var(--muted); }
+.fl .n { float: right; color: var(--muted); }
+form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; margin-bottom: 12px; }
+label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+select, input[type=number] { width: 100%; padding: 7px 8px; font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+.msg { font-weight: 600; margin: 0 0 8px; }
+.msg.bad { color: var(--fault); } .msg.ok { color: var(--alt); }
+.tblwrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+th, td { text-align: left; padding: 8px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; font-size: 13px; color: var(--muted); }
+td.n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+tbody tr.pick { cursor: pointer; }
+tbody tr.pick:hover { background: var(--soft); }
+tbody tr.sel { background: var(--soft); box-shadow: inset 3px 0 0 var(--primary); }
+.req { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.req li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.req .st { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); margin-top: 2px; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; }
+.req li.done .st { background: var(--alt); border-color: var(--alt); }
+.req li.done .st::after { content: "\2713"; }
+.req li.na .st { border-style: dashed; }
+.req b { font-size: 14px; } .req span.d { display: block; font-size: 13px; color: var(--muted); }
+.plot { max-width: 100%; border-radius: 6px; border: 1px solid var(--line); background: #fff; }
+.take { font-weight: 600; margin: 10px 0 0; }
+.empty { color: var(--muted); font-size: 14px; margin: 0; }
+.tag { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); white-space: nowrap; }
+.tag.bad { color: var(--fault); border-color: var(--fault); } .tag.mid { color: var(--warn); border-color: var(--warn); } .tag.ok { color: var(--alt); border-color: var(--alt); }
+td.hot { color: var(--fault); font-weight: 700; }
+table.err { min-width: 0; } table.err td.n { text-align: right; white-space: nowrap; }
+.errsum { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.errsum div { background: var(--soft); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+.errsum b { font-family: var(--font-mono); font-size: 16px; display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SDN Live Dashboard</h1>
+  <p class="lede">Live view of the real Mininet network and Ryu controller on this VM. Everything here is read from the running system and your <code>results</code> folder.</p>
+
+  <div class="pills" aria-live="polite">
+    <span class="pill" id="pRyu"><i></i>Ryu controller: <b>checking</b></span>
+    <span class="pill" id="pNet"><i></i>Mininet network: <b>checking</b></span>
+    <span class="pill" id="pLink"><i></i>Link s2–s4: <b>checking</b></span>
+    <span class="pill" id="pPath"><i></i>Active path: <b>checking</b></span>
+    <span class="pill" id="pExp"><i></i>Experiment: <b>idle</b></span>
+  </div>
+
+  <div class="grid g2">
+    <section class="card">
+      <h2>Network (live)</h2>
+      <svg viewBox="0 0 760 330" role="img" aria-label="Live topology showing the active path">
+        <g id="links" stroke-linecap="round"></g>
+        <text id="linkLabel" x="495" y="104" font-size="13" font-weight="700" fill="var(--fault)" font-family="monospace"></text>
+        <g id="ports" font-size="11" fill="var(--muted)" font-family="monospace" text-anchor="middle"></g>
+        <g id="nodes"></g>
+      </svg>
+      <p class="hint" id="topoHint"></p>
+    </section>
+    <section class="card">
+      <h2>Live demo actions</h2>
+      <div class="btns">
+        <button class="danger" id="bDown" type="button">Break link s2–s4</button>
+        <button class="ghost" id="bUp" type="button">Restore link</button>
+        <button class="ghost" id="bPing" type="button">Ping h1 → h2</button>
+      </div>
+      <pre id="actOut">Start the --cli demo network, then use these buttons. Breaking the link triggers the controller's link-down reroute.</pre>
+    </section>
+  </div>
+
+  <div class="grid g2b">
+    <section class="card">
+      <h2>Flow rules on the switches (ovs-ofctl, live)</h2>
+      <div class="flows" id="flows"><p class="empty">No network running.</p></div>
+      <p class="hint">Rules read: packets in on port X go out port Y. The number on the right is how many packets matched.</p>
+    </section>
+    <section class="card">
+      <h2>Ryu controller log</h2>
+      <div class="log" id="ryuLog"></div>
+      <p class="hint" id="ryuHint"></p>
+    </section>
+  </div>
+
+  <section class="card" style="margin-bottom:16px">
+    <h2 id="errTitle">Errors detected and how each was handled</h2>
+    <div class="errsum" id="errSum"></div>
+    <div class="tblwrap"><table class="err" id="errTbl"></table></div>
+    <p class="hint">Counts come from sender_stats.json, receiver_stats.json, events.json and summary.json of the selected run (the newest run if none is selected).</p>
+  </section>
+
+  <div class="grid g2b">
+    <section class="card">
+      <h2>Switch port errors (ovs-ofctl dump-ports, live)</h2>
+      <p class="hint" id="portLoss" style="margin:0 0 8px"></p>
+      <div class="tblwrap"><table class="err" id="portTbl"></table></div>
+      <p class="hint">Red = port down or a non-zero drop/error counter. tc netem loss happens before OVS counts it, so it shows as the s2&rarr;s4 gap above, not as a drop.</p>
+    </section>
+    <section class="card">
+      <h2>Live error log (Ryu + experiment)</h2>
+      <div class="log" id="errLog"></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-bottom:16px">
+    <h2>Run an experiment</h2>
+    <form id="expForm">
+      <div><label for="eMode">Who reroutes</label><select id="eMode"><option value="controller">SDN controller</option><option value="manual">Manual (1 s delay)</option></select></div>
+      <div><label for="eFault">Fault on s2–s4</label><select id="eFault"><option value="loss">Packet loss</option><option value="down">Link down</option></select></div>
+      <div><label for="eLoss">Loss %</label><input id="eLoss" type="number" min="1" max="90" value="30"></div>
+      <div><label for="eDur">Duration (s)</label><input id="eDur" type="number" min="10" max="60" value="20"></div>
+      <div><button id="eRun" type="submit">Run experiment</button></div>
+    </form>
+    <p class="msg" id="eMsg"></p>
+    <pre id="eLog" hidden></pre>
+    <p class="hint">Controller mode needs Ryu running. Close the --cli demo first (type exit), because only one network can run at a time. Results are analysed automatically.</p>
+  </section>
+
+  <section class="card" style="margin-bottom:16px">
+    <h2>Results (from your results folder)</h2>
+    <div class="tblwrap"><table id="runs"></table></div>
+    <p class="hint">Click a run to see its evidence for each requirement and its loss graph.</p>
+  </section>
+
+  <div class="grid g2b">
+    <section class="card">
+      <h2 id="detTitle">Requirement evidence</h2>
+      <ul class="req" id="detReq"><li><span></span><span class="empty">Select a run above.</span></li></ul>
+    </section>
+    <section class="card">
+      <h2>Loss graph</h2>
+      <div id="detPlot"><p class="empty">Select a run above.</p></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Manual vs SDN (real runs)</h2>
+    <form id="cmpForm" onsubmit="return false">
+      <div><label for="cM">Manual run</label><select id="cM"></select></div>
+      <div><label for="cS">Controller run</label><select id="cS"></select></div>
+    </form>
+    <div class="tblwrap"><table id="cmp"></table></div>
+    <p class="take" id="take"></p>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (s) { return document.querySelector(s); };
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function api(path, body) {
+    var opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
+    return fetch(path, opt).then(function (r) { return r.json().then(function (j) { j._status = r.status; return j; }); });
+  }
+
+  /* ---------------- topology ---------------- */
+  var NODE = { h1: [58, 165], s1: [190, 165], s2: [385, 62], s3: [385, 268], s4: [580, 165], h2: [702, 165] };
+  var LINKS = [['h1', 's1'], ['s1', 's2'], ['s2', 's4'], ['s1', 's3'], ['s3', 's4'], ['s4', 'h2']];
+  var PORTS = { s1: { h1: 1, s2: 2, s3: 3 }, s2: { s1: 1, s4: 2 }, s3: { s1: 1, s4: 2 }, s4: { h2: 1, s2: 2, s3: 3 } };
+  var PATH = { primary: ['h1s1', 's1s2', 's2s4', 's4h2'], alternate: ['h1s1', 's1s3', 's3s4', 's4h2'] };
+  var svgNS = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs, parent) { var e = document.createElementNS(svgNS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; }
+  LINKS.forEach(function (l) { var a = NODE[l[0]], b = NODE[l[1]]; el('line', { id: 'L' + l[0] + l[1], x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, $('#links')); });
+  Object.keys(PORTS).forEach(function (sw) { Object.keys(PORTS[sw]).forEach(function (nb) {
+    var a = NODE[sw], b = NODE[nb], L = Math.hypot(b[0] - a[0], b[1] - a[1]), off = 32;
+    var t = el('text', { x: a[0] + (b[0] - a[0]) * off / L, y: a[1] + (b[1] - a[1]) * off / L + (Math.abs(b[1] - a[1]) < 1 ? -9 : 4) }, $('#ports')); t.textContent = 'p' + PORTS[sw][nb];
+  }); });
+  Object.keys(NODE).forEach(function (n) {
+    var p = NODE[n], g = el('g', {}, $('#nodes'));
+    if (n[0] === 'h') el('rect', { x: p[0] - 21, y: p[1] - 16, width: 42, height: 32, rx: 6, fill: 'var(--surface)', stroke: 'var(--ink)', 'stroke-width': 2 }, g);
+    else el('circle', { cx: p[0], cy: p[1], r: 20, fill: 'var(--surface)', stroke: 'var(--ink)', 'stroke-width': 2 }, g);
+    var t = el('text', { x: p[0], y: p[1] + 5, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 700, fill: 'var(--ink)' }, g); t.textContent = n;
+  });
+  function drawTopo(s) {
+    var on = {}; (PATH[s.active_path] || []).forEach(function (k) { on[k] = true; });
+    var col = s.active_path === 'alternate' ? 'var(--alt)' : 'var(--primary)';
+    LINKS.forEach(function (l) {
+      var k = l[0] + l[1], line = document.getElementById('L' + k), down = k === 's2s4' && s.link_s2_s4 === 'down';
+      line.setAttribute('stroke', down ? 'var(--fault)' : (on[k] ? col : 'var(--line)'));
+      line.setAttribute('stroke-width', on[k] ? 7 : 2.5);
+      line.setAttribute('stroke-dasharray', down ? '8 7' : '');
+      line.setAttribute('opacity', on[k] ? 0.75 : 1);
+    });
+    $('#linkLabel').textContent = s.link_s2_s4 === 'down' ? 'LINK DOWN' : '';
+    $('#topoHint').textContent = !s.network ? 'No Mininet network is running. Start the --cli demo or an experiment.'
+      : s.active_path ? 'Highlighted: the ' + s.active_path + ' path, read from the rules on s1.' : 'Network is up but s1 has no forwarding rules yet. Is Ryu running?';
+  }
+
+  /* ---------------- status ---------------- */
+  function pill(id, cls, text) { var p = $(id); p.className = 'pill ' + cls; p.querySelector('b').textContent = text; }
+  function renderFlows(s) {
+    if (!s.network) { $('#flows').innerHTML = '<p class="empty">No network running.</p>'; return; }
+    $('#flows').innerHTML = ['s1', 's2', 's3', 's4'].map(function (sw) {
+      var rs = s.flows[sw];
+      if (rs === null || rs === undefined) return '<div class="fl"><b>' + sw + '</b><div class="dim">could not read rules</div></div>';
+      var fwd = rs.filter(function (r) { return r.priority > 0; }).map(function (r) {
+        return '<div>in ' + esc(r.in_port) + ' &rarr; out ' + esc(r.out_port) + '<span class="n">' + r.packets + '</span></div>';
+      }).join('');
+      var miss = rs.some(function (r) { return r.to_controller; }) ? '<div class="dim">priority 0 &rarr; controller</div>' : '';
+      return '<div class="fl"><b>' + sw + '</b>' + (fwd || '<div class="dim">no forwarding rules</div>') + miss + '</div>';
+    }).join('');
+  }
+  var lastLog = '';
+  function renderRyu(s) {
+    var lines = s.ryu_log;
+    if (!lines) {
+      $('#ryuLog').innerHTML = '<span class="dim">No Ryu log file found.</span>';
+      $('#ryuHint').innerHTML = 'Start Ryu with: <code>ryu-manager member3/controller.py 2&gt;&amp;1 | tee ' + esc(s.ryu_log_path) + '</code>';
+      return;
+    }
+    $('#ryuHint').textContent = 'Reading ' + s.ryu_log_path;
+    var useful = lines.filter(function (l) { return !/Eventlet|eventlet|deprecat|migrating|framework|readthedocs|RLock|^\s*$|import eventlet/.test(l); });
+    var html = useful.map(function (l) {
+      var c = /Failure|Loss alert|Link down|disconnected|error/i.test(l) ? 'warn' : /path active|connected/i.test(l) ? 'ok' : '';
+      return '<div class="' + c + '">' + esc(l) + '</div>';
+    }).join('');
+    if (html !== lastLog) { lastLog = html; var box = $('#ryuLog'); box.innerHTML = html; box.scrollTop = box.scrollHeight; }
+  }
+  var lastPhase = null;
+  function renderStatus(s) {
+    pill('#pRyu', s.ryu ? 'ok' : 'bad', s.ryu ? 'running' : 'stopped');
+    pill('#pNet', s.network ? 'ok' : '', s.network ? 'up' : 'not running');
+    pill('#pLink', s.link_s2_s4 === 'up' ? 'ok' : s.link_s2_s4 === 'down' ? 'bad' : '', s.link_s2_s4 || 'n/a');
+    pill('#pPath', s.active_path === 'primary' ? 'ok' : s.active_path === 'alternate' ? 'mid' : '', s.active_path ? s.active_path + (s.active_path === 'primary' ? ' (s1-s2-s4)' : ' (s1-s3-s4)') : 'none');
+    var ph = s.experiment.phase;
+    pill('#pExp', ph === 'running' || ph === 'analysing' ? 'mid' : ph === 'failed' ? 'bad' : ph === 'done' ? 'ok' : '', ph);
+    ['#bDown', '#bUp', '#bPing'].forEach(function (b) { $(b).disabled = !s.network; });
+    drawTopo(s); renderFlows(s); renderRyu(s); renderPorts(s); renderErrLog(s);
+    if (ph !== lastPhase) { if ((ph === 'done' || ph === 'failed') && lastPhase !== null) loadRuns(); lastPhase = ph; }
+  }
+  function poll() {
+    api('/api/status').then(renderStatus).catch(function () { pill('#pRyu', 'bad', 'dashboard server not reachable'); }).finally(function () { setTimeout(poll, 1000); });
+  }
+
+
+  /* ---------------- errors ---------------- */
+  var prevPorts = null;
+  function renderPorts(s) {
+    var ports = s.ports || {};
+    if (!s.network) { $('#portTbl').innerHTML = '<tbody><tr><td class="empty">No network running.</td></tr></tbody>'; $('#portLoss').textContent = ''; prevPorts = null; return; }
+    var rows = [];
+    ['s1', 's2', 's3', 's4'].forEach(function (sw) {
+      var p = ports[sw];
+      if (!p) { rows.push('<tr><td>' + sw + '</td><td colspan="6" class="empty">could not read ports (server needs sudo)</td></tr>'); return; }
+      Object.keys(p).sort(function (a, b) { return a - b; }).forEach(function (no) {
+        var c = p[no], down = c.link_down || c.admin_down;
+        function cell(v) { return '<td class="n' + (v > 0 ? ' hot' : '') + '">' + v + '</td>'; }
+        rows.push('<tr><td>' + sw + ' port ' + no + ' <span class="dim">(' + esc(c.name) + ')</span></td><td>' +
+          (down ? '<span class="tag bad">' + (c.admin_down ? 'admin down' : 'link down') + '</span>' : '<span class="tag ok">up</span>') + '</td>' +
+          cell(c.rx_drop) + cell(c.rx_errs + c.rx_crc) + cell(c.tx_drop) + cell(c.tx_errs + c.tx_coll) + '</tr>');
+      });
+    });
+    $('#portTbl').innerHTML = '<thead><tr><th>Port</th><th>State</th><th>RX drop</th><th>RX err</th><th>TX drop</th><th>TX err</th></tr></thead><tbody>' + rows.join('') + '</tbody>';
+    // Same check the controller's port-stats trigger makes: s2 sends on port 2, s4 receives on port 2.
+    var a = ports.s2 && ports.s2['2'], b = ports.s4 && ports.s4['2'];
+    if (a && b && prevPorts) {
+      var sent = a.tx_pkts - prevPorts.tx, got = b.rx_pkts - prevPorts.rx;
+      var pct = sent > 0 ? Math.max(0, (sent - got) * 100 / sent) : 0;
+      $('#portLoss').innerHTML = 's2&rarr;s4 in the last second: ' + sent + ' sent, ' + got + ' received, <b class="' + (pct >= 15 ? 'tag bad' : pct > 0 ? 'tag mid' : 'tag ok') + '">' + pct.toFixed(1) + '% lost</b>' + (pct >= 15 ? ' (above the controller’s 15% threshold)' : '');
+    } else if (!(a && b)) { $('#portLoss').textContent = ''; }
+    prevPorts = a && b ? { tx: a.tx_pkts, rx: b.rx_pkts } : null;
+  }
+  var lastErrLog = '';
+  function renderErrLog(s) {
+    var lines = (s.ryu_errors || []).map(function (l) { return ['Ryu', l]; }).concat((s.exp_errors || []).map(function (l) { return ['Run', l]; }));
+    var html = lines.length ? lines.map(function (x) {
+      var c = /error|fail|unreachable|refused|unconfirmed|disconnect/i.test(x[1]) ? 'warn' : /path active/i.test(x[1]) ? 'ok' : '';
+      return '<div class="' + c + '"><span class="dim">[' + x[0] + ']</span> ' + esc(x[1]) + '</div>';
+    }).join('') : '<span class="dim">No errors or warnings yet. Break the link or run a loss experiment to see them here.</span>';
+    if (html !== lastErrLog) { lastErrLog = html; var box = $('#errLog'); box.innerHTML = html; box.scrollTop = box.scrollHeight; }
+  }
+  function len(v) { return Array.isArray(v) ? v.length : null; }
+  function add(a, b) { return a === null && b === null ? null : (a || 0) + (b || 0); }
+  function renderErrors(r) {
+    if (!r) { $('#errSum').innerHTML = ''; $('#errTbl').innerHTML = '<tbody><tr><td class="empty">No runs yet. Run an experiment to see its errors.</td></tr></tbody>'; return; }
+    var tx = r.sender || {}, rx = r.receiver || {}, s = r.summary || {}, ev = r.events || {}, sdn = ev.mode === 'controller';
+    var reason = s.reroute_reason || ev.reroute_reason || '';
+    var lim = g(tx, 'retry_limit');
+    var acked3 = len(rx.seqs_acked_3_or_more);
+    var rows = [
+      ['Packet loss', 'Sequence gap at the receiver (e.g. got 7 after 5, so 6 is missing)', g(rx, 'nacks_sent'), 'NACK sent; sender retransmits the missing packet', 'mid'],
+      ['ACK timeout', 'No ACK within the sender timeout (0.5 s)', g(tx, 'timeouts'), 'Sender retransmits after the timeout', 'mid'],
+      ['3 or more attempts', 'Same packet needed 3+ sends (2 tries got no ACK)', g(tx, 'packets_3_or_more_attempts'), 'Kept retrying up to the retry limit' + (lim !== null ? ' (' + lim + ')' : '') + '; max attempts for one packet: ' + (g(tx, 'max_attempts') === null ? '–' : tx.max_attempts), 'mid'],
+      ['3 or more ACKs for one packet', 'Receiver ACKed the same sequence number 3+ times (its retransmissions kept arriving)', acked3, 'Data stored once; extra ACKs ignored by the sender (' + (g(tx, 'duplicate_acks') === null ? '–' : tx.duplicate_acks) + ' duplicate ACKs)', 'mid'],
+      ['Duplicate data packets', 'A packet arrived again after it was already received', g(rx, 'duplicates'), 'Not stored twice; ACK re-sent so the sender stops retrying', 'mid'],
+      ['UDP send failed', 'sendto() raised an error (network unreachable, no route)', add(g(tx, 'udp_send_errors'), g(rx, 'udp_send_errors')), 'Counted and logged; the packet is retried by the timeout path instead of crashing', 'bad'],
+      ['Loss alert not delivered', 'Receiver could not send the UDP loss alert to the controller (port 9999)', g(rx, 'loss_alert_errors'), sdn ? 'Receiver keeps going; controller still detects loss from port statistics' : 'Manual run: no controller to alert', 'bad'],
+      ['Bad or foreign UDP datagrams', 'Not valid JSON DATA, or from another sender/run', add(g(rx, 'malformed_datagrams'), g(rx, 'foreign_datagrams')), 'Ignored', 'mid'],
+      ['Unconfirmed after retry limit', 'Packet never ACKed after all retries', len(tx.unconfirmed), 'Reported as final loss (' + num(g(rx, 'final_loss_percent'), '%') + ')', 'bad'],
+      ['Link down (port status)', 'OpenFlow port-status: s2/s4 port went down', ev.fault === 'down' ? 1 : 0, sdn ? (/link_down|port_down/i.test(reason) ? 'Controller rerouted to s1-s3-s4' : (ev.fault === 'down' ? 'Rerouted: ' + (reason || 'see Ryu log') : '–')) : (ev.fault === 'down' ? 'Script switched path after the manual delay' : '–'), 'bad'],
+      ['Port-statistics loss', 'Controller saw ≥15% loss on s2→s4 for 2 seconds', /port_stats/i.test(reason) ? 1 : 0, /port_stats/i.test(reason) ? 'Controller rerouted (' + reason + ')' : sdn ? 'Not needed this run' + (reason ? ' (rerouted by ' + reason + ' first)' : '') : 'Manual run: not monitored', 'bad'],
+      ['Loss-alert reroute', 'Controller got 3 loss alerts within 5 s', /loss_alert/i.test(reason) ? 1 : 0, /loss_alert/i.test(reason) ? 'Controller rerouted in ' + num(g(s, 'reroute_delay_s'), ' s', 3) : sdn ? 'Not triggered' + (reason ? ' (' + reason + ')' : '') : 'Manual run: not monitored', 'bad']
+    ];
+    var seen = rows.filter(function (x) { return x[2] > 0; }).length;
+    $('#errTitle').textContent = 'Errors detected and how each was handled: ' + r.name;
+    $('#errSum').innerHTML = '<div><b>' + seen + '/' + rows.length + '</b>error types seen</div>' +
+      '<div><b>' + (g(tx, 'retransmissions') === null ? '–' : tx.retransmissions) + '</b>retransmissions</div>' +
+      '<div><b>' + num(g(rx, 'first_attempt_loss_percent'), '%') + '</b>lost on first try</div>' +
+      '<div><b>' + num(g(rx, 'final_loss_percent'), '%') + '</b>final loss</div>';
+    $('#errTbl').innerHTML = '<thead><tr><th>Error</th><th>What triggers it</th><th>Count</th><th>What the system did</th></tr></thead><tbody>' +
+      rows.map(function (x) {
+        var n = x[2], tag = n === null ? '<span class="dim">n/a</span>' : n > 0 ? '<span class="tag ' + x[4] + '">' + n + '</span>' : '<span class="tag ok">0</span>';
+        return '<tr><td><b>' + x[0] + '</b></td><td>' + esc(x[1]) + '</td><td class="n">' + tag + '</td><td>' + esc(x[3]) + '</td></tr>';
+      }).join('') + '</tbody>';
+  }
+
+  /* ---------------- demo actions ---------------- */
+  function act(btn, path, body, label) {
+    btn.disabled = true; $('#actOut').textContent = label + '...';
+    api(path, body).then(function (r) {
+      $('#actOut').textContent = r.error ? 'Error: ' + r.error : (r.output || (label + ': done. Watch the Ryu log and the flow rules.'));
+    }).catch(function () { $('#actOut').textContent = 'Could not reach the dashboard server.'; }).finally(function () { btn.disabled = false; });
+  }
+  $('#bDown').addEventListener('click', function () { act(this, '/api/link', { state: 'down' }, 'Link s2-s4 down'); });
+  $('#bUp').addEventListener('click', function () { act(this, '/api/link', { state: 'up' }, 'Link s2-s4 up'); });
+  $('#bPing').addEventListener('click', function () { act(this, '/api/ping', {}, 'Pinging h1 to h2'); });
+
+  /* ---------------- experiment ---------------- */
+  var expTimer = null;
+  function pollExp() {
+    api('/api/experiment').then(function (e) {
+      var m = $('#eMsg'); m.textContent = e.message || ''; m.className = 'msg ' + (e.phase === 'failed' ? 'bad' : e.phase === 'done' ? 'ok' : '');
+      var lg = $('#eLog'); lg.hidden = !(e.log && e.log.length); lg.textContent = (e.log || []).join('\n'); lg.scrollTop = lg.scrollHeight;
+      $('#eRun').disabled = e.phase === 'running' || e.phase === 'analysing';
+      clearTimeout(expTimer);
+      if (e.phase === 'running' || e.phase === 'analysing') expTimer = setTimeout(pollExp, 1000);
+    });
+  }
+  $('#expForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var body = { mode: $('#eMode').value, fault: $('#eFault').value, loss: +$('#eLoss').value, duration: +$('#eDur').value };
+    $('#eRun').disabled = true;
+    api('/api/experiment', body).then(function (r) {
+      if (r.error) { var m = $('#eMsg'); m.textContent = r.error; m.className = 'msg bad'; $('#eRun').disabled = false; return; }
+      pollExp();
+    });
+  });
+  $('#eFault').addEventListener('change', function () { $('#eLoss').disabled = this.value === 'down'; });
+
+  /* ---------------- results ---------------- */
+  var RUNS = [], selected = null;
+  function g(o, k) { return o && o[k] !== undefined && o[k] !== null ? o[k] : null; }
+  function num(v, unit, d) { return v === null ? '–' : (+v).toFixed(d === undefined ? 1 : d) + unit; }
+  function faultText(r) { var f = r.events.fault; return f === 'down' ? 'link down' : 'loss'; }
+  function loadRuns() {
+    api('/api/runs').then(function (j) { RUNS = j.runs || []; renderRuns(); renderCmpOptions(); if (selected) showRun(selected); else renderErrors(RUNS[0]); });
+  }
+  function renderRuns() {
+    if (!RUNS.length) { $('#runs').innerHTML = '<tbody><tr><td class="empty">No runs found in results/. Run an experiment above.</td></tr></tbody>'; return; }
+    $('#runs').innerHTML = '<thead><tr><th>Run</th><th>Mode</th><th>Fault</th><th>Loss before</th><th>Loss during</th><th>Loss after</th><th>Path switch</th><th>Recovery</th><th>Reason</th></tr></thead><tbody>' +
+      RUNS.map(function (r) {
+        var s = r.summary;
+        return '<tr class="pick' + (r.name === selected ? ' sel' : '') + '" data-run="' + esc(r.name) + '" tabindex="0"><td>' + esc(r.name) + '</td><td>' + esc(r.events.mode || '') + '</td><td>' + faultText(r) + '</td>' +
+          '<td class="n">' + num(g(s, 'loss_before_fault_%'), ' %') + '</td><td class="n">' + num(g(s, 'loss_during_outage_%'), ' %') + '</td><td class="n">' + num(g(s, 'loss_after_recovery_%'), ' %') + '</td>' +
+          '<td class="n">' + num(g(s, 'reroute_delay_s'), ' s', 3) + '</td><td class="n">' + num(g(s, 'recovery_time_s'), ' s', 2) + '</td><td>' + esc(g(s, 'reroute_reason') || (s ? '' : 'not analysed')) + '</td></tr>';
+      }).join('') + '</tbody>';
+    Array.prototype.forEach.call(document.querySelectorAll('#runs tr.pick'), function (tr) {
+      tr.addEventListener('click', function () { showRun(tr.getAttribute('data-run')); });
+      tr.addEventListener('keydown', function (e) { if (e.key === 'Enter') showRun(tr.getAttribute('data-run')); });
+    });
+  }
+  function showRun(name) {
+    var r = RUNS.filter(function (x) { return x.name === name; })[0]; if (!r) return;
+    selected = name;
+    Array.prototype.forEach.call(document.querySelectorAll('#runs tr.pick'), function (tr) { tr.classList.toggle('sel', tr.getAttribute('data-run') === name); });
+    var s = r.summary || {}, rx = r.receiver || {}, tx = r.sender || {}, sdn = r.events.mode === 'controller';
+    var items = [
+      ['Implement UDP sequence tracking', rx.expected != null, rx.expected != null ? tx.packets + ' numbered packets sent; ' + rx.unique_received + ' of ' + rx.expected + ' unique sequence numbers received.' : 'receiver_stats.json missing'],
+      ['Detect missing packets', rx.nacks_sent != null, rx.nacks_sent != null ? rx.nacks_sent + ' gaps detected (first-try loss ' + rx.first_attempt_loss_percent + '%).' : 'no receiver stats'],
+      ['Implement acknowledgments and retransmission', tx.retransmissions != null, tx.retransmissions != null ? rx.acks_sent + ' ACKs, ' + tx.nacks_received + ' NACKs received, ' + tx.retransmissions + ' retransmissions; final loss ' + rx.final_loss_percent + '%.' : 'no sender stats'],
+      ['Monitor network paths', sdn ? true : null, sdn ? 'Receiver loss alerts sent: ' + (rx.loss_alerts_sent != null ? rx.loss_alerts_sent : '?') + '; controller also polls port statistics every 1 s.' : 'Manual run: no controller monitoring.'],
+      ['Create alternate paths in Mininet', true, 'Topology has primary s1-s2-s4 and alternate s1-s3-s4.'],
+      ['Trigger dynamic rerouting', sdn ? !!s.reroute_reason : null, sdn ? (s.reroute_reason ? 'Controller rerouted: ' + s.reroute_reason + '.' : 'No controller reroute recorded.') : 'Manual run: path switched by the script after a fixed delay.'],
+      ['Measure recovery time', s.recovery_time_s != null || s.reroute_delay_s != null, 'Path switch ' + num(g(s, 'reroute_delay_s'), ' s', 3) + ' after the fault; recovery ' + num(g(s, 'recovery_time_s'), ' s', 2) + '.'],
+      ['Compare packet loss before and after recovery', s['loss_before_fault_%'] != null, 'Before ' + num(g(s, 'loss_before_fault_%'), '%') + ', during ' + num(g(s, 'loss_during_outage_%'), '%') + ', after ' + num(g(s, 'loss_after_recovery_%'), '%') + '.']
+    ];
+    $('#detTitle').textContent = 'Requirement evidence: ' + name;
+    $('#detReq').innerHTML = items.map(function (it) {
+      var c = it[1] === null ? 'na' : it[1] ? 'done' : '';
+      return '<li class="' + c + '"><span class="st"></span><div><b>' + it[0] + '</b><span class="d">' + esc(it[2]) + '</span></div></li>';
+    }).join('');
+    renderErrors(r);
+    $('#detPlot').innerHTML = r.has_plot ? '<img class="plot" alt="Loss over time for ' + esc(name) + '" src="/api/plot?run=' + encodeURIComponent(name) + '&t=' + r.mtime + '">' : '<p class="empty">No loss_plot.png yet for this run.</p>';
+  }
+  function renderCmpOptions() {
+    function opts(mode) {
+      var list = RUNS.filter(function (r) { return r.events.mode === mode && r.summary; });
+      return list.length ? list.map(function (r) { return '<option value="' + esc(r.name) + '">' + esc(r.name) + '</option>'; }).join('') : '<option value="">none yet</option>';
+    }
+    var m = $('#cM').value, s = $('#cS').value;
+    $('#cM').innerHTML = opts('manual'); $('#cS').innerHTML = opts('controller');
+    if (m) $('#cM').value = m; if (s) $('#cS').value = s;
+    renderCmp();
+  }
+  function renderCmp() {
+    var M = RUNS.filter(function (r) { return r.name === $('#cM').value; })[0], S = RUNS.filter(function (r) { return r.name === $('#cS').value; })[0];
+    if (!M || !S) { $('#cmp').innerHTML = '<tbody><tr><td class="empty">Run at least one manual and one controller experiment to compare them.</td></tr></tbody>'; $('#take').textContent = ''; return; }
+    var rows = [['Fault', faultText(M), faultText(S)],
+      ['Loss before fault', num(g(M.summary, 'loss_before_fault_%'), ' %'), num(g(S.summary, 'loss_before_fault_%'), ' %')],
+      ['Loss during outage', num(g(M.summary, 'loss_during_outage_%'), ' %'), num(g(S.summary, 'loss_during_outage_%'), ' %')],
+      ['Loss after recovery', num(g(M.summary, 'loss_after_recovery_%'), ' %'), num(g(S.summary, 'loss_after_recovery_%'), ' %')],
+      ['Path switch after fault', num(g(M.summary, 'reroute_delay_s'), ' s', 3), num(g(S.summary, 'reroute_delay_s'), ' s', 3)],
+      ['Recovery time', num(g(M.summary, 'recovery_time_s'), ' s', 2), num(g(S.summary, 'recovery_time_s'), ' s', 2)],
+      ['Retransmissions', g(M.sender, 'retransmissions') === null ? '–' : M.sender.retransmissions, g(S.sender, 'retransmissions') === null ? '–' : S.sender.retransmissions],
+      ['Final loss', num(g(M.receiver, 'final_loss_percent'), ' %'), num(g(S.receiver, 'final_loss_percent'), ' %')]];
+    $('#cmp').innerHTML = '<thead><tr><th></th><th>Manual: ' + esc(M.name) + '</th><th>SDN: ' + esc(S.name) + '</th></tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr><th>' + r[0] + '</th><td class="n">' + r[1] + '</td><td class="n">' + r[2] + '</td></tr>'; }).join('') + '</tbody>';
+    var dm = g(M.summary, 'reroute_delay_s'), ds = g(S.summary, 'reroute_delay_s'), lm = g(M.summary, 'loss_during_outage_%'), ls = g(S.summary, 'loss_during_outage_%');
+    $('#take').textContent = dm !== null && ds !== null ? 'The controller switched paths ' + (dm - ds).toFixed(2) + ' s sooner' + (lm !== null && ls !== null ? ', with loss during the outage of ' + ls.toFixed(1) + '% instead of ' + lm.toFixed(1) + '%.' : '.') : '';
+  }
+  $('#cM').addEventListener('change', renderCmp); $('#cS').addEventListener('change', renderCmp);
+
+  poll(); loadRuns(); pollExp();
+})();
+</script>
+</body>
+</html>
