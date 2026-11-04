@@ -14,30 +14,32 @@ jobs:
   python-quality:
     name: Python syntax and CLI checks
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Compile all Python modules
-        run: |
-          python -m compileall -q member1 member2/files member3 dashboard tests
-
-      - name: Validate command-line interfaces
+        run: python -m compileall -q member1 member2/files member3 dashboard tests
+      - name: Install analysis dependency
+        run: python -m pip install matplotlib
+      - name: Validate standalone command-line interfaces
         run: |
           python member1/sender.py --help
           python member1/receiver.py --help
           python member2/files/probe.py --help
-          python member2/files/run_experiment.py --help
           python member2/files/analyze.py --help
-          python member2/files/compare.py
-
-      - name: Check dashboard HTML and standard-library imports
+      - name: Smoke-test comparison report generation
+        run: |
+          mkdir -p /tmp/ci-results/run-a /tmp/ci-results/run-b
+          printf '{"mode":"manual","packets_sent":10,"packets_received":9,"loss_before_fault_%":0,"loss_during_outage_%":10,"loss_after_recovery_%":0,"reroute_delay_s":1.0,"recovery_time_s":2.0}\n' > /tmp/ci-results/run-a/summary.json
+          printf '{"mode":"controller","packets_sent":10,"packets_received":10,"loss_before_fault_%":0,"loss_during_outage_%":5,"loss_after_recovery_%":0,"reroute_delay_s":0.2,"recovery_time_s":0.5}\n' > /tmp/ci-results/run-b/summary.json
+          python member2/files/compare.py /tmp/ci-results/run-a /tmp/ci-results/run-b
+          test -s /tmp/ci-results/comparison.png
+      - name: Check dashboard HTML and Python source
         run: |
           python - <<'PY'
           import ast
@@ -56,12 +58,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Run UDP integration tests
         run: python -m unittest discover -s tests -v
 
@@ -71,6 +71,6 @@ jobs:
     steps:
       - name: Explain SDN integration scope
         run: |
-          echo "Mininet, Open vSwitch, root network namespaces and Ryu are not installed by this lightweight CI workflow."
-          echo "The workflow does not claim that live topology, OpenFlow connections or dynamic rerouting were tested."
-          echo "Run the controller/manual experiments in the documented Ubuntu SDN VM for end-to-end validation."
+          echo "run_experiment.py imports Mininet at startup and needs a prepared Linux SDN host."
+          echo "Live Mininet, Open vSwitch, root network namespaces and Ryu rerouting are not tested on this standard runner."
+          echo "Python compile checks still validate run_experiment.py and controller.py syntax."
