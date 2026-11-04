@@ -35,8 +35,12 @@ jobs:
       - name: Smoke-test comparison report generation
         run: |
           mkdir -p /tmp/ci-results/run-a /tmp/ci-results/run-b
-          printf '{"mode":"manual","packets_sent":10,"packets_received":9,"loss_before_fault_%":0,"loss_during_outage_%":10,"loss_after_recovery_%":0,"reroute_delay_s":1.0,"recovery_time_s":2.0}\n' > /tmp/ci-results/run-a/summary.json
-          printf '{"mode":"controller","packets_sent":10,"packets_received":10,"loss_before_fault_%":0,"loss_during_outage_%":5,"loss_after_recovery_%":0,"reroute_delay_s":0.2,"recovery_time_s":0.5}\n' > /tmp/ci-results/run-b/summary.json
+          cat > /tmp/ci-results/run-a/summary.json <<'JSON'
+          {"mode":"manual","packets_sent":10,"packets_received":9,"loss_before_fault_%":0,"loss_during_outage_%":10,"loss_after_recovery_%":0,"reroute_delay_s":1.0,"recovery_time_s":2.0}
+          JSON
+          cat > /tmp/ci-results/run-b/summary.json <<'JSON'
+          {"mode":"controller","packets_sent":10,"packets_received":10,"loss_before_fault_%":0,"loss_during_outage_%":5,"loss_after_recovery_%":0,"reroute_delay_s":0.2,"recovery_time_s":0.5}
+          JSON
           python member2/files/compare.py /tmp/ci-results/run-a /tmp/ci-results/run-b
           test -s /tmp/ci-results/comparison.png
       - name: Check dashboard HTML and Python source
