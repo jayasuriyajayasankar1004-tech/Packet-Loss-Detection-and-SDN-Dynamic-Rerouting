@@ -1,0 +1,76 @@
+name: Project CI Checks
+
+on:
+  push:
+    branches: [main, "**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-quality:
+    name: Python syntax and CLI checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile all Python modules
+        run: |
+          python -m compileall -q member1 member2/files member3 dashboard tests
+
+      - name: Validate command-line interfaces
+        run: |
+          python member1/sender.py --help
+          python member1/receiver.py --help
+          python member2/files/probe.py --help
+          python member2/files/run_experiment.py --help
+          python member2/files/analyze.py --help
+          python member2/files/compare.py
+
+      - name: Check dashboard HTML and standard-library imports
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          ast.parse(Path("dashboard/server.py").read_text(encoding="utf-8"))
+          html = Path("dashboard/index.html").read_text(encoding="utf-8")
+          assert "<html" in html.lower()
+          assert "</html>" in html.lower()
+          print("Dashboard source checks passed")
+          PY
+
+  udp-integration:
+    name: UDP loss detection and recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run UDP integration tests
+        run: python -m unittest discover -s tests -v
+
+  environment-dependent:
+    name: Mininet and Ryu environment note
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain SDN integration scope
+        run: |
+          echo "Mininet, Open vSwitch, root network namespaces and Ryu are not installed by this lightweight CI workflow."
+          echo "The workflow does not claim that live topology, OpenFlow connections or dynamic rerouting were tested."
+          echo "Run the controller/manual experiments in the documented Ubuntu SDN VM for end-to-end validation."
