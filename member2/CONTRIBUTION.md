@@ -6,7 +6,7 @@
 
 ## Contribution overview
 
-I worked on the Mininet-based network environment used to test packet-loss detection and SDN-assisted dynamic rerouting. My responsibility was to build and validate the data-plane topology, introduce controlled network faults, run experiments, and collect measurements that help evaluate packet loss and recovery.
+I worked on the Mininet-based network environment used to simulate network communication and study packet loss under different network conditions. My contribution was limited to the Mininet topology and experiment/testing work; I did not implement or test the SDN controller or SDN-based rerouting. My responsibility was to build and validate the data-plane topology, introduce controlled network faults, run experiments, and collect measurements that help evaluate packet loss and recovery.
 
 ## Work carried out
 
@@ -20,8 +20,7 @@ I worked on the Mininet-based network environment used to test packet-loss detec
 
 - Configured the primary route: `h1 → s1 → s2 → s4 → h2`.
 - Configured the alternate route: `h1 → s1 → s3 → s4 → h2`.
-- Prepared the topology so traffic could be tested on the primary route and moved to the alternate route when the primary route experienced a fault.
-- Coordinated the data-plane setup with the SDN controller component developed by Member 3.
+- Prepared the topology with a primary route and an alternate route so both paths could be used in network simulation and testing.
 
 ### 3. Network fault injection
 
@@ -33,7 +32,7 @@ I worked on the Mininet-based network environment used to test packet-loss detec
 ### 4. Experiment execution
 
 - Used the Member 2 experiment runner (`member2/files/run_experiment.py`) to run network tests.
-- Ran manual-baseline and controller-assisted experiment modes.
+- Ran Mininet network experiments using the available test scenarios. I did not run or claim SDN-controller-assisted experiments.
 - Configured experiment parameters such as fault type, loss percentage, duration, fault injection time, and traffic rate.
 - Used Mininet cleanup and repeatable run procedures between experiments.
 
@@ -42,12 +41,12 @@ I worked on the Mininet-based network environment used to test packet-loss detec
 - Collected sender and receiver logs and experiment output files.
 - Worked with CSV and JSON output, including sent/received packet records and event information.
 - Tracked packet loss before, during, and after fault injection.
-- Examined path-switch delay and recovery time to understand how quickly communication recovered.
+- Examined packet delivery and recovery behavior during and after injected network faults. I did not measure or claim SDN controller path-switching performance.
 
 ### 6. Result analysis and comparison
 
 - Used `analyze.py` to summarize an experiment and generate a packet-loss plot.
-- Used `compare.py` to compare manual-baseline and controller-assisted runs.
+- Used `compare.py` where applicable to compare experiment output datasets; this contribution does not claim implementation or evaluation of SDN controller behavior.
 - Used `probe.py` as a supporting network-testing utility.
 - Reviewed the generated summaries and plots to evaluate the behavior of the simulated network.
 
@@ -58,7 +57,7 @@ I worked on the Mininet-based network environment used to test packet-loss detec
 - **Ubuntu/Linux** — environment for running Mininet experiments.
 - **Python 3** — experiment automation and analysis scripts.
 - **CSV, JSON and Matplotlib** — experiment logs, summaries and visualization.
-- **OpenFlow 1.3 / Ryu integration** — interaction between the simulated data plane and the SDN controller (controller implementation belongs to Member 3).
+- **Python, CSV, JSON and Matplotlib** — supporting experiment automation, data collection and visualization.
 
 ## Files associated with the Member 2 work
 
@@ -72,10 +71,10 @@ I worked on the Mininet-based network environment used to test packet-loss detec
 ## Collaboration and module boundaries
 
 - **Member 1:** UDP sender/receiver, sequence tracking, ACK/NACK, and retransmission.
-- **Member 2 (my role):** Mininet topology, Open vSwitch data plane, fault injection, experiment execution, measurement, and result analysis.
-- **Member 3:** Ryu SDN controller and dynamic flow-rule updates for rerouting.
+- **Member 2 (my role):** Mininet topology, Open vSwitch data plane, fault injection, experiment execution, packet-loss measurement, and result analysis.
+- **Member 3:** SDN controller and dynamic rerouting (not part of my contribution).
 
-My contribution focused on the network simulation and evaluation layer. The UDP application and Ryu controller are credited to their respective team members.
+My contribution was limited to Mininet network simulation and testing. I did not develop, configure, or evaluate the SDN controller or SDN-based dynamic rerouting.
 
 ## Learning outcomes
 
